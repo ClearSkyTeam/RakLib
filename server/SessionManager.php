@@ -19,23 +19,11 @@ use raklib\Binary;
 use raklib\protocol\ACK;
 use raklib\protocol\ADVERTISE_SYSTEM;
 use raklib\protocol\DATA_PACKET_0;
-use raklib\protocol\DATA_PACKET_1;
-use raklib\protocol\DATA_PACKET_2;
-use raklib\protocol\DATA_PACKET_3;
 use raklib\protocol\DATA_PACKET_4;
-use raklib\protocol\DATA_PACKET_5;
-use raklib\protocol\DATA_PACKET_6;
-use raklib\protocol\DATA_PACKET_7;
-use raklib\protocol\DATA_PACKET_8;
-use raklib\protocol\DATA_PACKET_9;
-use raklib\protocol\DATA_PACKET_A;
-use raklib\protocol\DATA_PACKET_B;
 use raklib\protocol\DATA_PACKET_C;
-use raklib\protocol\DATA_PACKET_D;
-use raklib\protocol\DATA_PACKET_E;
-use raklib\protocol\DATA_PACKET_F;
+use raklib\protocol\Datagram;
 use raklib\protocol\EncapsulatedPacket;
-use raklib\protocol\NACK;
+use raklib\protocol\NAK;
 use raklib\protocol\OPEN_CONNECTION_REPLY_1;
 use raklib\protocol\OPEN_CONNECTION_REPLY_2;
 use raklib\protocol\OPEN_CONNECTION_REQUEST_1;
@@ -48,6 +36,13 @@ use raklib\RakLib;
 
 class SessionManager{
 	protected $packetPool = [];
+
+	/** @var ACK */
+	protected $cachedACK = null;
+	/** @var NAK */
+	protected $cachedNAK = null;
+	/** @var Datagram */
+	protected $cachedDatagram = null;
 
 	/** @var RakLibServer */
 	protected $server;
@@ -78,6 +73,9 @@ class SessionManager{
 		$this->server = $server;
 		$this->socket = $socket;
 		$this->registerPackets();
+		$this->cachedACK = new ACK();
+		$this->cachedNAK = new NAK();
+		$this->cachedDatagram = new Datagram();
 
 		$this->serverId = mt_rand(0, PHP_INT_MAX);
 
@@ -155,6 +153,7 @@ class SessionManager{
 
 
 	private function receivePacket(){
+		$buffer = $source = $port = null;
 		$len = $this->socket->readPacket($buffer, $source, $port);
 		if($buffer !== null){
 			$this->receiveBytes += $len;
@@ -171,7 +170,22 @@ class SessionManager{
 			if($len > 0){
 				$pid = ord($buffer{0});
 
-				if($pid === UNCONNECTED_PING::$ID){
+				if($pid & Datagram::BITFLAG_VALID){
+					//This will break server queries. TODO: find a way to resolve this problem cleanly.
+					if($pid & Datagram::BITFLAG_ACK){
+						$packet = clone $this->cachedACK;
+						$packet->buffer = $buffer;
+						$this->getSession($source, $port)->handleACK($packet);
+					}elseif($pid & Datagram::BITFLAG_NAK){
+						$packet = clone $this->cachedNAK;
+						$packet->buffer = $buffer;
+						$this->getSession($source, $port)->handleNAK($packet);
+					}else{ //Normal data packet
+						$packet = clone $this->cachedDatagram;
+						$packet->buffer = $buffer;
+						$this->getSession($source, $port)->handleDatagram($packet);
+					}
+				}elseif($pid === UNCONNECTED_PING::$ID){
 					//No need to create a session for just pings
 					$packet = new UNCONNECTED_PING;
 					$packet->buffer = $buffer;
@@ -411,23 +425,5 @@ class SessionManager{
 		$this->registerPacket(OPEN_CONNECTION_REPLY_2::$ID, OPEN_CONNECTION_REPLY_2::class);
 		$this->registerPacket(UNCONNECTED_PONG::$ID, UNCONNECTED_PONG::class);
 		$this->registerPacket(ADVERTISE_SYSTEM::$ID, ADVERTISE_SYSTEM::class);
-		$this->registerPacket(DATA_PACKET_0::$ID, DATA_PACKET_0::class);
-		$this->registerPacket(DATA_PACKET_1::$ID, DATA_PACKET_1::class);
-		$this->registerPacket(DATA_PACKET_2::$ID, DATA_PACKET_2::class);
-		$this->registerPacket(DATA_PACKET_3::$ID, DATA_PACKET_3::class);
-		$this->registerPacket(DATA_PACKET_4::$ID, DATA_PACKET_4::class);
-		$this->registerPacket(DATA_PACKET_5::$ID, DATA_PACKET_5::class);
-		$this->registerPacket(DATA_PACKET_6::$ID, DATA_PACKET_6::class);
-		$this->registerPacket(DATA_PACKET_7::$ID, DATA_PACKET_7::class);
-		$this->registerPacket(DATA_PACKET_8::$ID, DATA_PACKET_8::class);
-		$this->registerPacket(DATA_PACKET_9::$ID, DATA_PACKET_9::class);
-		$this->registerPacket(DATA_PACKET_A::$ID, DATA_PACKET_A::class);
-		$this->registerPacket(DATA_PACKET_B::$ID, DATA_PACKET_B::class);
-		$this->registerPacket(DATA_PACKET_C::$ID, DATA_PACKET_C::class);
-		$this->registerPacket(DATA_PACKET_D::$ID, DATA_PACKET_D::class);
-		$this->registerPacket(DATA_PACKET_E::$ID, DATA_PACKET_E::class);
-		$this->registerPacket(DATA_PACKET_F::$ID, DATA_PACKET_F::class);
-		$this->registerPacket(NACK::$ID, NACK::class);
-		$this->registerPacket(ACK::$ID, ACK::class);
 	}
 }

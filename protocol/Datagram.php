@@ -23,7 +23,22 @@ namespace raklib\protocol;
 
 #include <rules/RakLibPacket.h>
 
-abstract class DataPacket extends Packet{
+class Datagram extends Packet{
+
+	const BITFLAG_VALID = 0x80;
+	const BITFLAG_ACK = 0x40;
+	const BITFLAG_NAK = 0x20;
+	const BITFLAG_PACKET_PAIR = 0x10;
+	const BITFLAG_CONTINUOUS_SEND = 0x08;
+	const BITFLAG_NEEDS_B_AND_AS = 0x04;
+	/*
+	 * isValid          0x80
+	 * isACK            0x40
+	 * isNAK            0x20 (hasBAndAS for ACKs)
+	 * isPacketPair     0x10
+	 * isContinuousSend 0x08
+	 * needsBAndAS      0x04
+	 */
 
 	/** @var EncapsulatedPacket[] */
 	public $packets = [];
