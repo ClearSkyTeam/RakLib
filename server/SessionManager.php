@@ -210,6 +210,7 @@ class SessionManager{
 
 	public function sendPacket(Packet $packet, $dest, $port){
 		$packet->encode();
+		assert(strlen($packet->buffer) <= 1492, get_class($packet) . " is too big (" . strlen($packet->buffer) . " bytes)");
 		$this->sendBytes += $this->socket->writePacket($packet->buffer, $dest, $port);
 	}
 
