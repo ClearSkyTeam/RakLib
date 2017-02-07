@@ -24,6 +24,15 @@ use raklib\Binary;
 
 class EncapsulatedPacket{
 
+	/*
+	 * 1  (bitflags)
+	 * 2  (data length)
+	 * 3  (message index)
+	 * 4  (3 (sequence number) + 1 (order channel))
+	 * 10 (4 (split count) + 2 (split id) + 4 (split index))
+	 */
+	const MAX_HEADER_LENGTH = 20;
+
 	public $reliability;
 	public $hasSplit = false;
 	public $length = 0;
@@ -89,8 +98,21 @@ class EncapsulatedPacket{
 		return $packet;
 	}
 
+	/**
+	 * Returns the resulting total encoded length of the encapsulated packet.
+	 * @return int
+	 */
 	public function getTotalLength(){
-		return 3 + strlen($this->buffer) + ($this->messageIndex !== null ? 3 : 0) + ($this->orderIndex !== null ? 4 : 0) + ($this->hasSplit ? 10 : 0);
+		return $this->getHeaderLength() + strlen($this->buffer);
+	}
+
+	/**
+	 * Returns the resulting encoded header length without the buffer.
+	 * @return int
+	 */
+	public function getHeaderLength() : int{
+		return
+			1 + 2 + ($this->messageIndex !== null ? 3 : 0) + ($this->orderIndex !== null ? 3 + 1 : 0) + ($this->hasSplit ? 4 + 2 + 4 : 0);
 	}
 
 	/**

@@ -30,13 +30,13 @@ class OpenConnectionRequest1 extends Packet{
 		parent::encode();
 		$this->put(RakLib::MAGIC);
 		$this->putByte($this->protocol);
-		$this->put(str_repeat(chr(0x00), $this->mtuSize - 18));
+		str_pad($this->buffer, $this->mtuSize - 20 - 8, "\x00");
 	}
 
 	public function decode(){
 		parent::decode();
 		$this->offset += 16; //Magic
 		$this->protocol = $this->getByte();
-		$this->mtuSize = strlen($this->get(true)) + 18;
+		$this->mtuSize = strlen($this->buffer) + 20 + 8; //IP header size + UDP header size + total buffer size
 	}
 }

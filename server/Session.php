@@ -42,6 +42,14 @@ class Session{
 	const MAX_SPLIT_SIZE = 128;
 	const MAX_SPLIT_COUNT = 4;
 
+	const MIN_MTU_SIZE = 576;
+	const MAX_MTU_SIZE = 1492;
+
+	const IP_HEADER_SIZE = 20;
+	const UDP_HEADER_SIZE = 8;
+
+	const MTU_EXCESS = self::IP_HEADER_SIZE + self::UDP_HEADER_SIZE + Datagram::DATAGRAM_HEADER_LENGTH + EncapsulatedPacket::MAX_HEADER_LENGTH + 8; //8 unaccounted for (RakNet is strange)
+
 	public static $WINDOW_SIZE = 2048;
 
 	private $messageIndex = 0;
@@ -52,7 +60,7 @@ class Session{
 	private $address;
 	private $port;
 	private $state = self::STATE_UNCONNECTED;
-	private $mtuSize = 548; //Min size
+	private $mtuSize = self::MIN_MTU_SIZE;
 	private $id = 0;
 	private $splitID = 0;
 
@@ -241,7 +249,7 @@ class Session{
 			$this->recoveryQueue[$packet->seqNumber] = $packet;
 		}else{
 			$length = $this->sendQueue->length();
-			if($length + $pk->getTotalLength() > $this->mtuSize){
+			if($length + $pk->getTotalLength() > $this->mtuSize - self::MTU_EXCESS){
 				$this->sendQueue();
 			}
 
@@ -278,8 +286,8 @@ class Session{
 			}
 		}
 
-		if($packet->getTotalLength() + 4 > $this->mtuSize){
-			$buffers = str_split($packet->buffer, $this->mtuSize - 34);
+		if($packet->getTotalLength() + Datagram::DATAGRAM_HEADER_LENGTH > $this->mtuSize - self::MTU_EXCESS){
+			$buffers = str_split($packet->buffer, $this->mtuSize - self::MTU_EXCESS);
 			$splitID = ++$this->splitID % 65536;
 			foreach($buffers as $count => $buffer){
 				$pk = new EncapsulatedPacket();
@@ -520,14 +528,14 @@ class Session{
 		if($packet instanceof OpenConnectionRequest1){
 			$packet->protocol; //TODO: check protocol number and refuse connections
 			$pk = new OpenConnectionReply1();
-			$pk->mtuSize = $packet->mtuSize;
+			$pk->mtuSize = min(self::MAX_MTU_SIZE, $packet->mtuSize); //Max size, do not allow creating large buffers to fill server memory
 			$pk->serverID = $this->sessionManager->getID();
 			$this->sendPacket($pk);
 			$this->state = self::STATE_CONNECTING_1;
 		}elseif($this->state === self::STATE_CONNECTING_1 and $packet instanceof OpenConnectionRequest2){
 			$this->id = $packet->clientID;
 			if($packet->serverPort === $this->sessionManager->getPort() or !$this->sessionManager->portChecking){
-				$this->mtuSize = min(abs($packet->mtuSize), 1464); //Max size, do not allow creating large buffers to fill server memory
+				$this->mtuSize = $packet->mtuSize;
 				$pk = new OpenConnectionReply2();
 				$pk->mtuSize = $this->mtuSize;
 				$pk->serverID = $this->sessionManager->getID();

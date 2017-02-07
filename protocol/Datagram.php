@@ -50,7 +50,7 @@ class Datagram extends Packet{
 			($this->isPacketPair     ? self::BITFLAG_PACKET_PAIR     : 0) |
 			($this->isContinuousSend ? self::BITFLAG_CONTINUOUS_SEND : 0) |
 			($this->needsBAndAS      ? self::BITFLAG_NEEDS_B_AND_AS  : 0));
-		
+
 		$this->putByte($flags);
 		$this->putLTriad($this->seqNumber);
 
