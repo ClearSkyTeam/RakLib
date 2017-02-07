@@ -16,23 +16,23 @@
 namespace raklib\server;
 
 use raklib\protocol\ACK;
-use raklib\protocol\CLIENT_CONNECT_DataPacket;
-use raklib\protocol\CLIENT_DISCONNECT_DataPacket;
-use raklib\protocol\CLIENT_HANDSHAKE_DataPacket;
+use raklib\protocol\ConnectedPing;
+use raklib\protocol\ConnectedPong;
+use raklib\protocol\ConnectionRequest;
+use raklib\protocol\ConnectionRequestAccepted;
 use raklib\protocol\DATA_PACKET_0;
 use raklib\protocol\DATA_PACKET_4;
 use raklib\protocol\Datagram;
+use raklib\protocol\DisconnectionNotification;
 use raklib\protocol\EncapsulatedPacket;
 use raklib\protocol\NAK;
-use raklib\protocol\OPEN_CONNECTION_REPLY_1;
-use raklib\protocol\OPEN_CONNECTION_REPLY_2;
-use raklib\protocol\OPEN_CONNECTION_REQUEST_1;
-use raklib\protocol\OPEN_CONNECTION_REQUEST_2;
+use raklib\protocol\NewIncomingConnection;
+use raklib\protocol\OpenConnectionRequest2;
+use raklib\protocol\OpenConnectionReply1;
+use raklib\protocol\OpenConnectionReply2;
+use raklib\protocol\OpenConnectionRequest1;
 use raklib\protocol\Packet;
 use raklib\protocol\PacketReliability;
-use raklib\protocol\PING_DataPacket;
-use raklib\protocol\PONG_DataPacket;
-use raklib\protocol\SERVER_HANDSHAKE_DataPacket;
 use raklib\RakLib;
 
 class Session{
@@ -393,11 +393,11 @@ class Session{
 		$id = ord($packet->buffer{0});
 		if($id < 0x80){ //internal data packet
 			if($this->state === self::STATE_CONNECTING_2){
-				if($id === CLIENT_CONNECT_DataPacket::$ID){
-					$dataPacket = new CLIENT_CONNECT_DataPacket;
+				if($id === ConnectionRequest::$ID){
+					$dataPacket = new ConnectionRequest;
 					$dataPacket->buffer = $packet->buffer;
 					$dataPacket->decode();
-					$pk = new SERVER_HANDSHAKE_DataPacket;
+					$pk = new ConnectionRequestAccepted;
 					$pk->address = $this->address;
 					$pk->port = $this->port;
 					$pk->sendPing = $dataPacket->sendPing;
@@ -408,8 +408,8 @@ class Session{
 					$sendPacket->reliability = PacketReliability::UNRELIABLE;
 					$sendPacket->buffer = $pk->buffer;
 					$this->addToQueue($sendPacket, RakLib::PRIORITY_IMMEDIATE);
-				}elseif($id === CLIENT_HANDSHAKE_DataPacket::$ID){
-					$dataPacket = new CLIENT_HANDSHAKE_DataPacket;
+				}elseif($id === NewIncomingConnection::$ID){
+					$dataPacket = new NewIncomingConnection;
 					$dataPacket->buffer = $packet->buffer;
 					$dataPacket->decode();
 
@@ -419,14 +419,14 @@ class Session{
 						$this->sessionManager->openSession($this);
 					}
 				}
-			}elseif($id === CLIENT_DISCONNECT_DataPacket::$ID){
+			}elseif($id === DisconnectionNotification::$ID){
 				$this->disconnect("client disconnect");
-			}elseif($id === PING_DataPacket::$ID){
-				$dataPacket = new PING_DataPacket;
+			}elseif($id === ConnectedPing::$ID){
+				$dataPacket = new ConnectedPing;
 				$dataPacket->buffer = $packet->buffer;
 				$dataPacket->decode();
 
-				$pk = new PONG_DataPacket;
+				$pk = new ConnectedPong;
 				$pk->pingID = $dataPacket->pingID;
 				$pk->encode();
 
@@ -518,18 +518,18 @@ class Session{
 		$this->isActive = true;
 		$this->lastUpdate = microtime(true);
 		$packet->decode();
-		if($packet instanceof OPEN_CONNECTION_REQUEST_1){
+		if($packet instanceof OpenConnectionRequest1){
 			$packet->protocol; //TODO: check protocol number and refuse connections
-			$pk = new OPEN_CONNECTION_REPLY_1();
+			$pk = new OpenConnectionReply1();
 			$pk->mtuSize = $packet->mtuSize;
 			$pk->serverID = $this->sessionManager->getID();
 			$this->sendPacket($pk);
 			$this->state = self::STATE_CONNECTING_1;
-		}elseif($this->state === self::STATE_CONNECTING_1 and $packet instanceof OPEN_CONNECTION_REQUEST_2){
+		}elseif($this->state === self::STATE_CONNECTING_1 and $packet instanceof OpenConnectionRequest2){
 			$this->id = $packet->clientID;
 			if($packet->serverPort === $this->sessionManager->getPort() or !$this->sessionManager->portChecking){
 				$this->mtuSize = min(abs($packet->mtuSize), 1464); //Max size, do not allow creating large buffers to fill server memory
-				$pk = new OPEN_CONNECTION_REPLY_2();
+				$pk = new OpenConnectionReply2();
 				$pk->mtuSize = $this->mtuSize;
 				$pk->serverID = $this->sessionManager->getID();
 				$pk->clientAddress = $this->address;

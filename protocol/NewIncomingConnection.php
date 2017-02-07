@@ -17,28 +17,30 @@ namespace raklib\protocol;
 
 #include <rules/RakLibPacket.h>
 
+class NewIncomingConnection extends Packet{
+	public static $ID = MessageIdentifiers::ID_NEW_INCOMING_CONNECTION;
 
-use raklib\RakLib;
-
-class OPEN_CONNECTION_REPLY_1 extends Packet{
-	public static $ID = 0x06;
-
-	public $serverID;
-	public $mtuSize;
+	public $address;
+	public $port;
+	
+	public $systemAddresses = [];
+	
+	public $sendPing;
+	public $sendPong;
 
 	public function encode(){
-		parent::encode();
-		$this->put(RakLib::MAGIC);
-		$this->putLong($this->serverID);
-		$this->putByte(0); //Server security
-		$this->putShort($this->mtuSize);
+		
 	}
 
 	public function decode(){
 		parent::decode();
-		$this->offset += 16; //Magic
-		$this->serverID = $this->getLong();
-		$this->getByte(); //security
-		$this->mtuSize = $this->getShort();
+		$this->getAddress($this->address, $this->port);
+		 for($i = 0; $i < 10; ++$i){
+			$this->getAddress($addr, $port, $version);
+			$this->systemAddresses[$i] = [$addr, $port, $version];
+		}
+		
+		$this->sendPing = $this->getLong();
+		$this->sendPong = $this->getLong();
 	}
 }

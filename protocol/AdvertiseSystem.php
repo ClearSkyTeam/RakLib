@@ -15,9 +15,6 @@
 
 namespace raklib\protocol;
 
-#include <rules/RakLibPacket.h>
-
-
-class UNCONNECTED_PING_OPEN_CONNECTIONS extends UNCONNECTED_PING{
-	public static $ID = 0x02;
+class AdvertiseSystem extends UnconnectedPong{
+	public static $ID = MessageIdentifiers::ID_ADVERTISE_SYSTEM;
 }
