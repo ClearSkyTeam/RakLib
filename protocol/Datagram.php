@@ -19,6 +19,8 @@ namespace raklib\protocol;
 
 class Datagram extends Packet{
 
+	const DATAGRAM_HEADER_LENGTH = 4; //1 byte (bitflags) + 3 bytes (sequence number)
+
 	const BITFLAG_VALID = 0x80;
 	const BITFLAG_ACK = 0x40;
 	const BITFLAG_NAK = 0x20;
@@ -34,21 +36,31 @@ class Datagram extends Packet{
 	 * needsBAndAS      0x04
 	 */
 
+	public $isPacketPair = false;
+	public $isContinuousSend = false;
+	public $needsBAndAS = false;
+
 	/** @var EncapsulatedPacket[] */
 	public $packets = [];
 
 	public $seqNumber;
 
 	public function encode(){
-		parent::encode();
+		$flags = (self::BITFLAG_VALID |
+			($this->isPacketPair     ? self::BITFLAG_PACKET_PAIR     : 0) |
+			($this->isContinuousSend ? self::BITFLAG_CONTINUOUS_SEND : 0) |
+			($this->needsBAndAS      ? self::BITFLAG_NEEDS_B_AND_AS  : 0));
+		
+		$this->putByte($flags);
 		$this->putLTriad($this->seqNumber);
+
 		foreach($this->packets as $packet){
 			$this->put($packet instanceof EncapsulatedPacket ? $packet->toBinary() : (string) $packet);
 		}
 	}
 
 	public function length(){
-		$length = 4;
+		$length = self::DATAGRAM_HEADER_LENGTH;
 		foreach($this->packets as $packet){
 			$length += $packet instanceof EncapsulatedPacket ? $packet->getTotalLength() : strlen($packet);
 		}
@@ -57,7 +69,11 @@ class Datagram extends Packet{
 	}
 
 	public function decode(){
-		parent::decode();
+		$flags = $this->getByte();
+		$this->isPacketPair =     ($flags & self::BITFLAG_PACKET_PAIR)     !== 0;
+		$this->isContinuousSend = ($flags & self::BITFLAG_CONTINUOUS_SEND) !== 0;
+		$this->needsBAndAS =      ($flags & self::BITFLAG_NEEDS_B_AND_AS)  !== 0;
+
 		$this->seqNumber = $this->getLTriad();
 
 		while(!$this->feof()){

@@ -20,8 +20,6 @@ use raklib\protocol\ConnectedPing;
 use raklib\protocol\ConnectedPong;
 use raklib\protocol\ConnectionRequest;
 use raklib\protocol\ConnectionRequestAccepted;
-use raklib\protocol\DATA_PACKET_0;
-use raklib\protocol\DATA_PACKET_4;
 use raklib\protocol\Datagram;
 use raklib\protocol\DisconnectionNotification;
 use raklib\protocol\EncapsulatedPacket;
@@ -101,7 +99,8 @@ class Session{
 		$this->sessionManager = $sessionManager;
 		$this->address = $address;
 		$this->port = $port;
-		$this->sendQueue = new DATA_PACKET_4();
+		$this->sendQueue = new Datagram();
+		$this->sendQueue->needsBAndAS = true;
 		$this->lastUpdate = microtime(true);
 		$this->startTime = microtime(true);
 		$this->isActive = false;
@@ -213,7 +212,8 @@ class Session{
 			$this->sendPacket($this->sendQueue);
 			$this->sendQueue->sendTime = microtime(true);
 			$this->recoveryQueue[$this->sendQueue->seqNumber] = $this->sendQueue;
-			$this->sendQueue = new DATA_PACKET_4();
+			$this->sendQueue = new Datagram();
+			$this->sendQueue->needsBAndAS = true;
 		}
 	}
 
@@ -227,7 +227,7 @@ class Session{
 			$this->needACK[$pk->identifierACK][$pk->messageIndex] = $pk->messageIndex;
 		}
 		if($priority === RakLib::PRIORITY_IMMEDIATE){ //Skip queues
-			$packet = new DATA_PACKET_0();
+			$packet = new Datagram();
 			$packet->seqNumber = $this->sendSeqNumber++;
 			if($pk->needACK){
 				$packet->packets[] = clone $pk;
@@ -239,19 +239,18 @@ class Session{
 			$this->sendPacket($packet);
 			$packet->sendTime = microtime(true);
 			$this->recoveryQueue[$packet->seqNumber] = $packet;
-
-			return;
-		}
-		$length = $this->sendQueue->length();
-		if($length + $pk->getTotalLength() > $this->mtuSize){
-			$this->sendQueue();
-		}
-
-		if($pk->needACK){
-			$this->sendQueue->packets[] = clone $pk;
-			$pk->needACK = false;
 		}else{
-			$this->sendQueue->packets[] = $pk->toBinary();
+			$length = $this->sendQueue->length();
+			if($length + $pk->getTotalLength() > $this->mtuSize){
+				$this->sendQueue();
+			}
+
+			if($pk->needACK){
+				$this->sendQueue->packets[] = clone $pk;
+				$pk->needACK = false;
+			}else{
+				$this->sendQueue->packets[] = $pk->toBinary();
+			}
 		}
 	}
 
