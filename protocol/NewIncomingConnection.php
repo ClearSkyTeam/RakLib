@@ -29,17 +29,17 @@ class NewIncomingConnection extends Packet{
 	public $sendPong;
 
 	public function encode(){
-		
+
 	}
 
 	public function decode(){
 		parent::decode();
 		$this->getAddress($this->address, $this->port);
-		 for($i = 0; $i < 10; ++$i){
+		for($i = 0; $i < 10; ++$i){
 			$this->getAddress($addr, $port, $version);
 			$this->systemAddresses[$i] = [$addr, $port, $version];
 		}
-		
+
 		$this->sendPing = $this->getLong();
 		$this->sendPong = $this->getLong();
 	}
