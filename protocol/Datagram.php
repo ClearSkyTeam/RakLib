@@ -15,11 +15,15 @@
 
 namespace raklib\protocol;
 
+use raklib\RakLib;
+
 #include <rules/RakLibPacket.h>
 
 class Datagram extends Packet{
 
 	const DATAGRAM_HEADER_LENGTH = 4; //1 byte (bitflags) + 3 bytes (sequence number)
+
+	const DATAGRAM_FULL_OVERHEAD = self::DATAGRAM_HEADER_LENGTH + RakLib::IP_HEADER_LENGTH + RakLib::UDP_HEADER_LENGTH + 8; //8 unaccounted for (RakNet is weird)
 
 	const BITFLAG_VALID = 0x80;
 	const BITFLAG_ACK = 0x40;
@@ -41,9 +45,35 @@ class Datagram extends Packet{
 	public $needsBAndAS = false;
 
 	/** @var EncapsulatedPacket[] */
-	public $packets = [];
+	protected $packets = [];
 
 	public $seqNumber;
+
+	protected $length = 0;
+
+	/**
+	 * @param EncapsulatedPacket $packet
+	 * @param int                $mtuSize
+	 *
+	 * @return bool
+	 */
+	public function addPacket(EncapsulatedPacket $packet, int $mtuSize) : bool{
+		if(($pkLen = $packet->getTotalLength()) + self::DATAGRAM_FULL_OVERHEAD + $this->length > $mtuSize){
+			return false;
+		}
+
+		$this->packets[] = $packet;
+		$this->length += $pkLen;
+
+		return true;
+	}
+
+	/**
+	 * @return EncapsulatedPacket[]
+	 */
+	public function getPackets() : array{
+		return $this->packets;
+	}
 
 	public function encode(){
 		$flags = (self::BITFLAG_VALID |
@@ -59,13 +89,8 @@ class Datagram extends Packet{
 		}
 	}
 
-	public function length(){
-		$length = self::DATAGRAM_HEADER_LENGTH;
-		foreach($this->packets as $packet){
-			$length += $packet instanceof EncapsulatedPacket ? $packet->getTotalLength() : strlen($packet);
-		}
-
-		return $length;
+	public function length() : int{
+		return $this->length + self::DATAGRAM_FULL_OVERHEAD - 8; //Remove 8 nonexistent bytes
 	}
 
 	public function decode(){

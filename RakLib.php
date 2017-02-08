@@ -58,6 +58,9 @@ abstract class RakLib{
 
 	const FLAG_NEED_ACK = 0b00001000;
 
+	const IP_HEADER_LENGTH = 20;
+	const UDP_HEADER_LENGTH  = 8;
+
 	/*
 	 * Internal Packet:
 	 * int32 (length without this field)

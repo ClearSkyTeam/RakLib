@@ -25,10 +25,10 @@ use raklib\protocol\DisconnectionNotification;
 use raklib\protocol\EncapsulatedPacket;
 use raklib\protocol\NAK;
 use raklib\protocol\NewIncomingConnection;
-use raklib\protocol\OpenConnectionRequest2;
 use raklib\protocol\OpenConnectionReply1;
 use raklib\protocol\OpenConnectionReply2;
 use raklib\protocol\OpenConnectionRequest1;
+use raklib\protocol\OpenConnectionRequest2;
 use raklib\protocol\Packet;
 use raklib\protocol\PacketReliability;
 use raklib\RakLib;
@@ -215,7 +215,7 @@ class Session{
 	}
 
 	public function sendQueue(){
-		if(count($this->sendQueue->packets) > 0){
+		if(count($this->sendQueue->getPackets()) > 0){
 			$this->sendQueue->seqNumber = $this->sendSeqNumber++;
 			$this->sendPacket($this->sendQueue);
 			$this->sendQueue->sendTime = microtime(true);
@@ -237,27 +237,20 @@ class Session{
 		if($priority === RakLib::PRIORITY_IMMEDIATE){ //Skip queues
 			$packet = new Datagram();
 			$packet->seqNumber = $this->sendSeqNumber++;
-			if($pk->needACK){
-				$packet->packets[] = clone $pk;
-				$pk->needACK = false;
-			}else{
-				$packet->packets[] = $pk->toBinary();
+
+			if(!$packet->addPacket($pk, $this->mtuSize)){
+				throw new \InvalidStateException("Packet is too large! (" . $pk->getTotalLength() . " bytes)");
 			}
 
 			$this->sendPacket($packet);
 			$packet->sendTime = microtime(true);
 			$this->recoveryQueue[$packet->seqNumber] = $packet;
 		}else{
-			$length = $this->sendQueue->length();
-			if($length + $pk->getTotalLength() > $this->mtuSize - self::MTU_EXCESS){
+			if(!$this->sendQueue->addPacket($pk, $this->mtuSize)){ //Too big to be added to current queue
 				$this->sendQueue();
-			}
-
-			if($pk->needACK){
-				$this->sendQueue->packets[] = clone $pk;
-				$pk->needACK = false;
-			}else{
-				$this->sendQueue->packets[] = $pk->toBinary();
+				if(!$this->sendQueue->addPacket($pk, $this->mtuSize)){
+					throw new \InvalidStateException("Packet is too large! (" . $pk->getTotalLength() . " bytes)");
+				}
 			}
 		}
 	}
@@ -286,8 +279,8 @@ class Session{
 			}
 		}
 
-		if($packet->getTotalLength() + Datagram::DATAGRAM_HEADER_LENGTH > $this->mtuSize - self::MTU_EXCESS){
-			$buffers = str_split($packet->buffer, $this->mtuSize - self::MTU_EXCESS);
+		if($packet->getTotalLength() > $this->mtuSize - Datagram::DATAGRAM_FULL_OVERHEAD){
+			$buffers = str_split($packet->buffer, $this->mtuSize - Datagram::DATAGRAM_FULL_OVERHEAD - EncapsulatedPacket::MAX_HEADER_LENGTH);
 			$splitID = ++$this->splitID % 65536;
 			foreach($buffers as $count => $buffer){
 				$pk = new EncapsulatedPacket();
@@ -312,7 +305,7 @@ class Session{
 			$this->addToQueue($packet, $flags);
 		}
 	}
-	
+
 	private function handleSplit(EncapsulatedPacket $packet){
 		if($packet->splitCount >= self::MAX_SPLIT_SIZE or $packet->splitIndex >= self::MAX_SPLIT_SIZE or $packet->splitIndex < 0){
 			return;
@@ -394,6 +387,7 @@ class Session{
 			if($this->state === self::STATE_CONNECTED){
 				$this->handleSplit($packet);
 			}
+
 			return;
 		}
 
@@ -481,7 +475,7 @@ class Session{
 				$this->windowEnd += $diff;
 			}
 
-			foreach($packet->packets as $pk){
+			foreach($packet->getPackets() as $pk){
 				$this->handleEncapsulatedPacket($pk);
 			}
 		}
@@ -494,11 +488,6 @@ class Session{
 			$packet->decode();
 			foreach($packet->packets as $seq){
 				if(isset($this->recoveryQueue[$seq])){
-					foreach($this->recoveryQueue[$seq]->packets as $pk){
-						if($pk instanceof EncapsulatedPacket and $pk->needACK and $pk->messageIndex !== null){
-							unset($this->needACK[$pk->identifierACK][$pk->messageIndex]);
-						}
-					}
 					unset($this->recoveryQueue[$seq]);
 				}
 			}
