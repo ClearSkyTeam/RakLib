@@ -76,6 +76,7 @@ class Datagram extends Packet{
 	}
 
 	public function encode(){
+		$this->reset();
 		$flags = (self::BITFLAG_VALID |
 			($this->isPacketPair     ? self::BITFLAG_PACKET_PAIR     : 0) |
 			($this->isContinuousSend ? self::BITFLAG_CONTINUOUS_SEND : 0) |

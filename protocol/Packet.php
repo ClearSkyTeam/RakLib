@@ -129,11 +129,17 @@ abstract class Packet{
 	}
 
 	public function encode(){
-		$this->buffer = chr(static::$ID);
+		$this->reset();
+		$this->putByte(static::$ID);
 	}
 
 	public function decode(){
 		$this->offset = 1;
+	}
+
+	public function reset(){
+		$this->buffer = "";
+		$this->offset = 0;
 	}
 
 	public function clean(){
