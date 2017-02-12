@@ -73,7 +73,7 @@ class Session{
 	private $isTemporal = true;
 
 	/** @var Datagram[] */
-	private $packetToSend = [];
+	private $datagramQueue = [];
 
 	private $isActive;
 
@@ -92,7 +92,7 @@ class Session{
 	private $needACK = [];
 
 	/** @var Datagram */
-	private $sendQueue;
+	private $currentDatagram;
 
 	private $windowStart;
 	private $receivedWindow = [];
@@ -107,8 +107,8 @@ class Session{
 		$this->sessionManager = $sessionManager;
 		$this->address = $address;
 		$this->port = $port;
-		$this->sendQueue = new Datagram();
-		$this->sendQueue->needsBAndAS = true;
+		$this->currentDatagram = new Datagram();
+		$this->currentDatagram->needsBAndAS = true;
 		$this->lastUpdate = microtime(true);
 		$this->startTime = microtime(true);
 		$this->isActive = false;
@@ -157,21 +157,26 @@ class Session{
 			$this->NACKQueue = [];
 		}
 
-		if(count($this->packetToSend) > 0){
+		$this->addCurrentDatagramToQueue();
+
+		if(count($this->datagramQueue) > 0){
 			$limit = 16;
-			foreach($this->packetToSend as $k => $pk){
+			$first = true;
+			foreach($this->datagramQueue as $k => $pk){
+				$pk->isContinuousSend = !$first;
 				$pk->sendTime = $time;
 				$this->recoveryQueue[$pk->seqNumber] = $pk;
-				unset($this->packetToSend[$k]);
+				unset($this->datagramQueue[$k]);
 				$this->sendPacket($pk);
 
+				$first = false;
 				if(--$limit <= 0){
 					break;
 				}
 			}
 
-			if(count($this->packetToSend) > self::$WINDOW_SIZE){
-				$this->packetToSend = [];
+			if(count($this->datagramQueue) > self::$WINDOW_SIZE){
+				$this->datagramQueue = [];
 			}
 		}
 
@@ -187,7 +192,7 @@ class Session{
 
 		foreach($this->recoveryQueue as $seq => $pk){
 			if($pk->sendTime < (time() - 8)){
-				$this->packetToSend[] = $pk;
+				$this->datagramQueue[] = $pk;
 				unset($this->recoveryQueue[$seq]);
 			}else{
 				break;
@@ -201,8 +206,6 @@ class Session{
 				break;
 			}
 		}
-
-		$this->sendQueue();
 	}
 
 	public function disconnect($reason = "unknown"){
@@ -213,14 +216,14 @@ class Session{
 		$this->sessionManager->sendPacket($packet, $this->address, $this->port);
 	}
 
-	public function sendQueue(){
-		if(count($this->sendQueue->getPackets()) > 0){
-			$this->sendQueue->seqNumber = $this->sendSeqNumber++;
-			$this->sendPacket($this->sendQueue);
-			$this->sendQueue->sendTime = microtime(true);
-			$this->recoveryQueue[$this->sendQueue->seqNumber] = $this->sendQueue;
-			$this->sendQueue = new Datagram();
-			$this->sendQueue->needsBAndAS = true;
+	public function addCurrentDatagramToQueue(){
+		if(count($this->currentDatagram->getPackets()) > 0){
+			$this->currentDatagram->seqNumber = $this->sendSeqNumber++;
+			$this->datagramQueue[] = $this->currentDatagram;
+			$this->currentDatagram->sendTime = microtime(true);
+			$this->recoveryQueue[$this->currentDatagram->seqNumber] = $this->currentDatagram;
+			$this->currentDatagram = new Datagram();
+			$this->currentDatagram->needsBAndAS = true;
 		}
 	}
 
@@ -245,9 +248,9 @@ class Session{
 			$packet->sendTime = microtime(true);
 			$this->recoveryQueue[$packet->seqNumber] = $packet;
 		}else{
-			if(!$this->sendQueue->addPacket($pk, $this->mtuSize)){ //Too big to be added to current queue
-				$this->sendQueue();
-				if(!$this->sendQueue->addPacket($pk, $this->mtuSize)){
+			if(!$this->currentDatagram->addPacket($pk, $this->mtuSize)){ //Too big to be added to current queue
+				$this->addCurrentDatagramToQueue();
+				if(!$this->currentDatagram->addPacket($pk, $this->mtuSize)){
 					throw new \InvalidStateException("Packet is too large! (" . $pk->getTotalLength() . " bytes)");
 				}
 			}
@@ -298,7 +301,7 @@ class Session{
 					$pk->orderChannel = $packet->orderChannel;
 					$pk->orderIndex = $packet->orderIndex;
 				}
-				$this->addToQueue($pk, $flags | RakLib::PRIORITY_IMMEDIATE);
+				$this->addToQueue($pk, $flags);
 			}
 		}else{
 			$this->addToQueue($packet, $flags);
@@ -502,7 +505,7 @@ class Session{
 				if(isset($this->recoveryQueue[$seq])){
 					$pk = $this->recoveryQueue[$seq];
 					$pk->seqNumber = $this->sendSeqNumber++;
-					$this->packetToSend[] = $pk;
+					$this->datagramQueue[] = $pk;
 					unset($this->recoveryQueue[$seq]);
 				}
 			}
