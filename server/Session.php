@@ -23,6 +23,7 @@ use raklib\protocol\ConnectionRequestAccepted;
 use raklib\protocol\Datagram;
 use raklib\protocol\DisconnectionNotification;
 use raklib\protocol\EncapsulatedPacket;
+use raklib\protocol\MessageIdentifiers;
 use raklib\protocol\NAK;
 use raklib\protocol\NewIncomingConnection;
 use raklib\protocol\OpenConnectionReply1;
@@ -80,7 +81,7 @@ class Session{
 	/** @var int[] */
 	private $ACKQueue = [];
 	/** @var int[] */
-	private $NACKQueue = [];
+	private $NAKQueue = [];
 
 	/** @var Datagram[] */
 	private $recoveryQueue = [];
@@ -88,7 +89,7 @@ class Session{
 	/** @var Datagram[][] */
 	private $splitPackets = [];
 
-	/** @var int[][] */
+	/** @var int[] */
 	private $needACK = [];
 
 	/** @var Datagram */
@@ -150,11 +151,11 @@ class Session{
 			$this->ACKQueue = [];
 		}
 
-		if(count($this->NACKQueue) > 0){
+		if(count($this->NAKQueue) > 0){
 			$pk = new NAK();
-			$pk->packets = $this->NACKQueue;
+			$pk->packets = $this->NAKQueue;
 			$this->sendPacket($pk);
-			$this->NACKQueue = [];
+			$this->NAKQueue = [];
 		}
 
 		$this->addCurrentDatagramToQueue();
@@ -181,8 +182,8 @@ class Session{
 		}
 
 		if(count($this->needACK) > 0){
-			foreach($this->needACK as $identifierACK => $indexes){
-				if(count($indexes) === 0){
+			foreach($this->needACK as $identifierACK => $count){
+				if($count <= 0){
 					unset($this->needACK[$identifierACK]);
 					$this->sessionManager->notifyACK($this, $identifierACK);
 				}
@@ -233,8 +234,12 @@ class Session{
 	 */
 	private function addToQueue(EncapsulatedPacket $pk, $flags = RakLib::PRIORITY_NORMAL){
 		$priority = $flags & 0b00000111;
-		if($pk->needACK and $pk->messageIndex !== null){
-			$this->needACK[$pk->identifierACK][$pk->messageIndex] = $pk->messageIndex;
+		if($pk->needsAckReceipt()){
+			if(!isset($this->needACK[$pk->identifierACK])){
+				$this->needACK[$pk->identifierACK] = 1;
+			}else{
+				$this->needACK[$pk->identifierACK]++;
+			}
 		}
 		if($priority === RakLib::PRIORITY_IMMEDIATE){ //Skip queues
 			$packet = new Datagram();
@@ -262,23 +267,12 @@ class Session{
 	 * @param int                $flags
 	 */
 	public function addEncapsulatedToQueue(EncapsulatedPacket $packet, $flags = RakLib::PRIORITY_NORMAL){
-
-		if(($packet->needACK = ($flags & RakLib::FLAG_NEED_ACK) > 0) === true){
-			$this->needACK[$packet->identifierACK] = [];
+		if($packet->isReliable()){
+			$packet->messageIndex = $this->messageIndex++;
 		}
 
-		if(
-			$packet->reliability === PacketReliability::RELIABLE or
-			$packet->reliability === PacketReliability::RELIABLE_ORDERED or
-			$packet->reliability === PacketReliability::RELIABLE_SEQUENCED or
-			$packet->reliability === PacketReliability::RELIABLE_WITH_ACK_RECEIPT or
-			$packet->reliability === PacketReliability::RELIABLE_ORDERED_WITH_ACK_RECEIPT
-		){
-			$packet->messageIndex = $this->messageIndex++;
-
-			if($packet->reliability === PacketReliability::RELIABLE_ORDERED){
-				$packet->orderIndex = $this->channelIndex[$packet->orderChannel]++;
-			}
+		if($packet->isSequenced()){
+			$packet->orderIndex = $this->channelIndex[$packet->orderChannel]++;
 		}
 
 		if($packet->getTotalLength() > $this->mtuSize - Datagram::DATAGRAM_FULL_OVERHEAD){
@@ -292,15 +286,24 @@ class Session{
 				$pk->reliability = $packet->reliability;
 				$pk->splitIndex = $count;
 				$pk->buffer = $buffer;
-				if($count > 0){
-					$pk->messageIndex = $this->messageIndex++;
-				}else{
-					$pk->messageIndex = $packet->messageIndex;
+
+				if($pk->needsAckReceipt()){
+					$pk->identifierACK = $packet->identifierACK;
 				}
-				if($pk->reliability === PacketReliability::RELIABLE_ORDERED){
+
+				if($pk->isReliable()){
+					if($count > 0){
+						$pk->messageIndex = $this->messageIndex++;
+					}else{
+						$pk->messageIndex = $packet->messageIndex;
+					}
+				}
+
+				if($pk->isSequenced()){
 					$pk->orderChannel = $packet->orderChannel;
 					$pk->orderIndex = $packet->orderIndex;
 				}
+
 				$this->addToQueue($pk, $flags);
 			}
 		}else{
@@ -394,7 +397,7 @@ class Session{
 		}
 
 		$id = ord($packet->buffer{0});
-		if($id < 0x80){ //internal data packet
+		if($id < MessageIdentifiers::ID_USER_PACKET_ENUM){ //internal data packet
 			if($this->state === self::STATE_CONNECTING_2){
 				if($id === ConnectionRequest::$ID){
 					$dataPacket = new ConnectionRequest;
@@ -459,14 +462,14 @@ class Session{
 
 			$diff = $packet->seqNumber - $this->lastSeqNumber;
 
-			unset($this->NACKQueue[$packet->seqNumber]);
+			unset($this->NAKQueue[$packet->seqNumber]);
 			$this->ACKQueue[$packet->seqNumber] = $packet->seqNumber;
 			$this->receivedWindow[$packet->seqNumber] = $packet->seqNumber;
 
 			if($diff !== 1){
 				for($i = $this->lastSeqNumber + 1; $i < $packet->seqNumber; ++$i){
 					if(!isset($this->receivedWindow[$i])){
-						$this->NACKQueue[$i] = $i;
+						$this->NAKQueue[$i] = $i;
 					}
 				}
 			}
@@ -490,6 +493,11 @@ class Session{
 			$packet->decode();
 			foreach($packet->packets as $seq){
 				if(isset($this->recoveryQueue[$seq])){
+					foreach($this->recoveryQueue[$seq]->getPackets() as $encapsulatedPacket){
+						if($encapsulatedPacket->needsAckReceipt()){
+							$this->needACK[$encapsulatedPacket->identifierACK]--;
+						}
+					}
 					unset($this->recoveryQueue[$seq]);
 				}
 			}
