@@ -20,7 +20,9 @@ use raklib\protocol\ACK;
 use raklib\protocol\AdvertiseSystem;
 use raklib\protocol\Datagram;
 use raklib\protocol\EncapsulatedPacket;
+use raklib\protocol\MessageIdentifiers;
 use raklib\protocol\NAK;
+use raklib\protocol\NoFreeIncomingConnections;
 use raklib\protocol\OpenConnectionReply1;
 use raklib\protocol\OpenConnectionReply2;
 use raklib\protocol\OpenConnectionRequest1;
@@ -51,6 +53,7 @@ class SessionManager{
 
 	/** @var Session[] */
 	protected $sessions = [];
+	protected $maxAllowedConnections = PHP_INT_MAX;
 
 	protected $name = "";
 
@@ -148,60 +151,112 @@ class SessionManager{
 		++$this->ticks;
 	}
 
-
+	/**
+	 * Reads a packet from the socket and processes it.
+	 *
+	 * @return bool if anything was read from the socket.
+	 */
 	private function receivePacket(){
 		$buffer = $source = $port = null;
 		$len = $this->socket->readPacket($buffer, $source, $port);
 		if($buffer !== null){
-			$this->receiveBytes += $len;
-			if(isset($this->block[$source])){
-				return true;
-			}
-
-			if(isset($this->ipSec[$source])){
-				$this->ipSec[$source]++;
-			}else{
-				$this->ipSec[$source] = 1;
-			}
-
-			if($len > 0){
-				$pid = ord($buffer{0});
-
-				if($pid & Datagram::BITFLAG_VALID){
-					//This will break server queries. TODO: find a way to resolve this problem cleanly.
-					if($pid & Datagram::BITFLAG_ACK){
-						$packet = clone $this->cachedACK;
-						$packet->buffer = $buffer;
-						$this->getSession($source, $port)->handleACK($packet);
-					}elseif($pid & Datagram::BITFLAG_NAK){
-						$packet = clone $this->cachedNAK;
-						$packet->buffer = $buffer;
-						$this->getSession($source, $port)->handleNAK($packet);
-					}else{ //Normal data packet
-						$packet = clone $this->cachedDatagram;
-						$packet->buffer = $buffer;
-						$this->getSession($source, $port)->handleDatagram($packet);
-					}
-				}elseif($pid === UnconnectedPing::$ID){
-					//No need to create a session for just pings
-					$packet = new UnconnectedPing;
-					$packet->buffer = $buffer;
-					$packet->decode();
-
-					$pk = new UnconnectedPong();
-					$pk->serverID = $this->getID();
-					$pk->pingID = $packet->pingID;
-					$pk->serverName = $this->getName();
-					$this->sendPacket($pk, $source, $port);
-				}elseif($pid === UnconnectedPong::$ID){
-					//ignored
-				}elseif(($packet = $this->getPacketFromPool($pid)) !== null){
-					$packet->buffer = $buffer;
-					$this->getSession($source, $port)->handlePacket($packet);
-				}else{
-					$this->streamRaw($source, $port, $buffer);
+			try{
+				$this->receiveBytes += $len;
+				if(isset($this->block[$source])){
+					return true;
 				}
+
+				if(isset($this->ipSec[$source])){
+					$this->ipSec[$source]++;
+				}else{
+					$this->ipSec[$source] = 1;
+				}
+
+				if($len > 0){
+					$pid = ord($buffer{0});
+
+					if($this->sessionExists($source, $port) and ($pid & Datagram::BITFLAG_VALID)){
+						if($pid & Datagram::BITFLAG_ACK){
+							$packet = clone $this->cachedACK;
+							$packet->buffer = $buffer;
+							$this->getSession($source, $port)->handleACK($packet);
+						}elseif($pid & Datagram::BITFLAG_NAK){
+							$packet = clone $this->cachedNAK;
+							$packet->buffer = $buffer;
+							$this->getSession($source, $port)->handleNAK($packet);
+						}else{ //Normal data packet
+							$packet = clone $this->cachedDatagram;
+							$packet->buffer = $buffer;
+							$this->getSession($source, $port)->handleDatagram($packet);
+						}
+					}else{ //Offline message
+						switch($pid){
+							case MessageIdentifiers::ID_UNCONNECTED_PING:
+								//No need to create a session for just pings
+								$packet = new UnconnectedPing($buffer);
+								$packet->decode();
+
+								$pk = new UnconnectedPong();
+								$pk->serverID = $this->getID();
+								$pk->pingID = $packet->pingID;
+								$pk->serverName = $this->getName();
+								$this->sendPacket($pk, $source, $port);
+								break;
+							case MessageIdentifiers::ID_OPEN_CONNECTION_REQUEST_1:
+								$packet = new OpenConnectionRequest1($buffer);
+								$packet->decode();
+
+								if(false/*$packet->protocol !== RakLib::PROTOCOL*/){
+									//TODO: figure out how to handle incompatible protocol (MCPE uses 8, nothing else will)
+									/*$pk = new IncompatibleProtocolVersion();
+									$pk->remoteProtocol = RakLib::PROTOCOL;
+									$this->sendPacket($pk, $source, $port);*/
+								}else{
+									$pk = new OpenConnectionReply1();
+									$pk->mtuSize = max(Session::MAX_MTU_SIZE, $packet->mtuSize);
+									$pk->serverID = $this->getID();
+									$this->sendPacket($pk, $source, $port);
+								}
+								break;
+							case MessageIdentifiers::ID_OPEN_CONNECTION_REQUEST_2:
+								$packet = new OpenConnectionRequest2($buffer);
+								$packet->decode();
+
+								if($this->sessionExists($source, $port)){
+									//already connected, return ID_ALREADY_CONNECTED (TODO)
+								}elseif(count($this->sessions) >= $this->maxAllowedConnections){
+									$pk = new NoFreeIncomingConnections();
+									$pk->serverID = $this->getID();
+									$this->sendPacket($pk, $source, $port);
+									//TODO: notify main thread
+								}else{
+									if($packet->serverPort === $this->getPort() or !$this->portChecking){
+										$pk = new OpenConnectionReply2();
+										$pk->mtuSize = $packet->mtuSize;
+										$pk->serverID = $this->getID();
+										$pk->clientAddress = $source;
+										$pk->clientPort = $port;
+										$this->sendPacket($pk, $source, $port);
+										$this->createSession($source, $port, $packet->mtuSize);
+									}
+								}
+								break;
+							default:
+								if(($packet = $this->getPacketFromPool($pid)) !== null){
+									$packet->buffer = $buffer;
+									$this->getSession($source, $port)->handlePacket($packet);
+								}else{
+									$this->streamRaw($source, $port, $buffer);
+								}
+								break;
+						}
+					}
+				}
+			}catch(\Throwable $e){
+				$this->blockAddress($source);
+				$this->getLogger()->logException($e);
 			}
+
 			return true;
 		}
 
@@ -254,7 +309,7 @@ class SessionManager{
 	private function checkSessions(){
 		if(count($this->sessions) > 4096){
 			foreach($this->sessions as $i => $s){
-				if($s->isTemporal()){
+				if(!$s->isConnected()){
 					unset($this->sessions[$i]);
 					if(count($this->sessions) <= 4096){
 						break;
@@ -356,20 +411,27 @@ class SessionManager{
 		}
 	}
 
+	public function sessionExists(string $ip, int $port){
+		return isset($this->sessions[$ip . ":" . $port]);
+	}
+
+	public function createSession(string $ip, int $port, int $mtuSize){
+		$id = $ip . ":" . $port;
+		if(isset($this->sessions[$id])){
+			throw new \InvalidStateException("Session for $ip:$port already exists");
+		}
+
+		$this->sessions[$id] = new Session($this, $ip, $port, $mtuSize);
+	}
+
 	/**
 	 * @param string $ip
-	 * @param int	$port
+	 * @param int    $port
 	 *
 	 * @return Session
 	 */
-	public function getSession($ip, $port){
-		$id = $ip . ":" . $port;
-		if(!isset($this->sessions[$id])){
-			$this->checkSessions();
-			$this->sessions[$id] = new Session($this, $ip, $port);
-		}
-
-		return $this->sessions[$id];
+	public function getSession(string $ip, int $port){
+		return $this->sessions[$ip . ":" . $port] ?? null;
 	}
 
 	public function removeSession(Session $session, $reason = "unknown"){
@@ -402,13 +464,18 @@ class SessionManager{
 	}
 
 	/**
-	 * @param $id
+	 * @param int    $id
+	 * @param string $buffer
+	 * @param int    $offset
 	 *
-	 * @return Packet
+	 * @return Packet|null
 	 */
-	public function getPacketFromPool($id){
+	public function getPacketFromPool(int $id, string $buffer = "", int $offset = 0){
 		if(isset($this->packetPool[$id])){
-			return clone $this->packetPool[$id];
+			$pk = clone $this->packetPool[$id];
+			$pk->buffer = $buffer;
+			$pk->offset = $offset;
+			return $pk;
 		}
 
 		return null;
