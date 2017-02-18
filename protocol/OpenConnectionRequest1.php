@@ -30,7 +30,7 @@ class OpenConnectionRequest1 extends Packet{
 		parent::encode();
 		$this->put(RakLib::MAGIC);
 		$this->putByte($this->protocol);
-		str_pad($this->buffer, $this->mtuSize - 20 - 8, "\x00");
+		$this->buffer .= str_repeat("\x00", $this->mtuSize - strlen($this->buffer) - 20 - 8);
 	}
 
 	public function decode(){
