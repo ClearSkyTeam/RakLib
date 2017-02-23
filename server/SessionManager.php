@@ -57,7 +57,7 @@ class SessionManager{
 
 	protected $name = "";
 
-	protected $packetLimit = 1000;
+	protected $packetLimit = 200;
 
 	protected $shutdown = false;
 
