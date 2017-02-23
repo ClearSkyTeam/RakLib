@@ -189,10 +189,10 @@ class SessionManager{
 							$packet->buffer = $buffer;
 							$this->getSession($source, $port)->handleDatagram($packet);
 						}
-					}else{ //Offline message
+					}elseif(strpos($buffer, RakLib::MAGIC) !== false){ //Offline message
 						switch($pid){
 							case MessageIdentifiers::ID_UNCONNECTED_PING:
-								//No need to create a session for just pings
+							//case MessageIdentifiers::ID_UNCONNECTED_PING_OPEN_CONNECTIONS: //TODO
 								$packet = new UnconnectedPing($buffer);
 								$packet->decode();
 
@@ -242,14 +242,11 @@ class SessionManager{
 								}
 								break;
 							default:
-								if(($packet = $this->getPacketFromPool($pid)) !== null){
-									$packet->buffer = $buffer;
-									$this->getSession($source, $port)->handlePacket($packet);
-								}else{
-									$this->streamRaw($source, $port, $buffer);
-								}
+								//$this->getLogger()->debug("Unhandled offline message from $source $port: 0x" . bin2hex($buffer));
 								break;
 						}
+					}else{ //Not RakNet message or valid datagram, maybe Query
+						$this->streamRaw($source, $port, $buffer);
 					}
 				}
 			}catch(\Throwable $e){
