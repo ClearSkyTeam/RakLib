@@ -31,11 +31,6 @@ use raklib\protocol\PacketReliability;
 use raklib\RakLib;
 
 class Session{
-	const STATE_UNCONNECTED = 0;
-	const STATE_CONNECTING_1 = 1;
-	const STATE_CONNECTING_2 = 2;
-	const STATE_CONNECTED = 3;
-
 	const MAX_SPLIT_SIZE = 128;
 	const MAX_SPLIT_COUNT = 4;
 
