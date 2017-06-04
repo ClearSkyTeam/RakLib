@@ -13,6 +13,8 @@
  *
  */
 
+declare(strict_types=1);
+
 namespace raklib\server;
 
 use raklib\protocol\ACK;
@@ -399,7 +401,7 @@ class Session{
 					$pk->address = $this->address;
 					$pk->port = $this->port;
 					$pk->sendPing = $dataPacket->sendPing;
-					$pk->sendPong = bcadd($pk->sendPing, "1000");
+					$pk->sendPong = (int) bcadd("$pk->sendPing", "1000");
 					$pk->encode();
 
 					$sendPacket = new EncapsulatedPacket();
