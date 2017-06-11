@@ -238,6 +238,8 @@ class SessionManager{
 										$pk->clientPort = $port;
 										$this->sendPacket($pk, $source, $port);
 										$this->createSession($source, $port, $packet->mtuSize);
+									}else{
+										$this->getLogger()->debug("Received connection on unexpected port " . $packet->serverPort . ", expected " . $this->getPort());
 									}
 								}
 								break;
