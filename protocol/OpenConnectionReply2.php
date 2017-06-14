@@ -26,13 +26,14 @@ class OpenConnectionReply2 extends Packet{
 	public $serverID;
 	public $clientAddress;
 	public $clientPort;
+	public $clientAddrVersion = 4;
 	public $mtuSize;
 
 	public function encode(){
 		parent::encode();
 		$this->put(RakLib::MAGIC);
 		$this->putLong($this->serverID);
-		$this->putAddress($this->clientAddress, $this->clientPort, 4);
+		$this->putAddress($this->clientAddress, $this->clientPort, $this->clientAddrVersion);
 		$this->putShort($this->mtuSize);
 		$this->putByte(0); //server security
 	}
@@ -41,7 +42,7 @@ class OpenConnectionReply2 extends Packet{
 		parent::decode();
 		$this->offset += 16; //Magic
 		$this->serverID = $this->getLong();
-		$this->getAddress($this->clientAddress, $this->clientPort);
+		$this->getAddress($this->clientAddress, $this->clientPort, $this->clientAddrVersion);
 		$this->mtuSize = $this->getShort();
 		//server security
 	}

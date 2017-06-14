@@ -22,6 +22,7 @@ class NewIncomingConnection extends Packet{
 
 	public $address;
 	public $port;
+	public $addrVersion = 4;
 	
 	public $systemAddresses = [];
 	
@@ -29,12 +30,19 @@ class NewIncomingConnection extends Packet{
 	public $sendPong;
 
 	public function encode(){
+		parent::encode();
+		$this->putAddress($this->address, $this->port, $this->addrVersion);
+		for($i = 0; $i < 10; ++$i){
+			$this->putAddress($this->systemAddresses[$i][0], $this->systemAddresses[$i][1], $this->systemAddresses[$i][2]);
+		}
 
+		$this->putLong($this->sendPing);
+		$this->putLong($this->sendPong);
 	}
 
 	public function decode(){
 		parent::decode();
-		$this->getAddress($this->address, $this->port);
+		$this->getAddress($this->address, $this->port, $this->addrVersion);
 		for($i = 0; $i < 10; ++$i){
 			$this->getAddress($addr, $port, $version);
 			$this->systemAddresses[$i] = [$addr, $port, $version];

@@ -34,6 +34,6 @@ class UnconnectedPing extends Packet{
 	public function decode(){
 		parent::decode();
 		$this->pingID = $this->getLong();
-		//magic
+		$this->offset += 16; //magic
 	}
 }

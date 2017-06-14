@@ -26,12 +26,13 @@ class OpenConnectionRequest2 extends Packet{
 	public $clientID;
 	public $serverAddress;
 	public $serverPort;
+	public $serverAddrVersion = 4;
 	public $mtuSize;
 
 	public function encode(){
 		parent::encode();
 		$this->put(RakLib::MAGIC);
-		$this->putAddress($this->serverAddress, $this->serverPort, 4);
+		$this->putAddress($this->serverAddress, $this->serverPort, $this->serverAddrVersion);
 		$this->putShort($this->mtuSize);
 		$this->putLong($this->clientID);
 	}
@@ -39,7 +40,7 @@ class OpenConnectionRequest2 extends Packet{
 	public function decode(){
 		parent::decode();
 		$this->offset += 16; //Magic
-		$this->getAddress($this->serverAddress, $this->serverPort);
+		$this->getAddress($this->serverAddress, $this->serverPort, $this->serverAddrVersion);
 		$this->mtuSize = $this->getShort();
 		$this->clientID = $this->getLong();
 	}
