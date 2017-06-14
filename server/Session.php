@@ -160,7 +160,7 @@ class Session{
 		$this->addCurrentDatagramToQueue();
 
 		if(count($this->datagramQueue) > 0){
-			$limit = 16;
+			$limit = 128;
 			$first = true;
 			foreach($this->datagramQueue as $k => $pk){
 				$pk->isContinuousSend = !$first;
@@ -173,10 +173,6 @@ class Session{
 				if(--$limit <= 0){
 					break;
 				}
-			}
-
-			if(count($this->datagramQueue) > self::$WINDOW_SIZE){
-				$this->datagramQueue = [];
 			}
 		}
 
